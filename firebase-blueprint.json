@@ -1,0 +1,89 @@
+{
+  "entities": {
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "User journal reflection entry with multi-turn messages and mood tags",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the journal entry"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of reflection entry"
+        },
+        "mood": {
+          "type": "string",
+          "description": "Selected emotional tone or focus area"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp in ISO format"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last modified timestamp in ISO format"
+        },
+        "initialPrompt": {
+          "type": "string",
+          "description": "Initial thought or question submitted by the user"
+        },
+        "summary": {
+          "type": "string",
+          "description": "Synthesized takeaways or reflection summary"
+        },
+        "messages": {
+          "type": "array",
+          "description": "Chronological multi-turn dialogue between user and Gemini"
+        }
+      },
+      "required": ["id", "userId", "title", "createdAt", "messages"]
+    },
+    "UserInteraction": {
+      "title": "UserInteraction",
+      "description": "Audited reflection summary interaction log",
+      "type": "object",
+      "properties": {
+        "entryId": {
+          "type": "string",
+          "description": "Referenced journal entry ID"
+        },
+        "title": {
+          "type": "string",
+          "description": "Entry title summary"
+        },
+        "mood": {
+          "type": "string",
+          "description": "Reflective mood tag"
+        },
+        "turnCount": {
+          "type": "integer",
+          "description": "Number of dialogue turns"
+        },
+        "lastUpdated": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Audit timestamp"
+        }
+      },
+      "required": ["entryId", "title", "lastUpdated"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/entries/{entryId}": {
+      "schema": "JournalEntry",
+      "description": "User personal journal entries isolated by UID"
+    },
+    "/users/{userId}/interactions/{interactionId}": {
+      "schema": "UserInteraction",
+      "description": "Interaction metadata isolated by UID"
+    }
+  }
+}

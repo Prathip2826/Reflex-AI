@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { Sparkles, Shield, Lock, Brain, ArrowRight, CheckCircle2, UserCheck, AlertCircle } from 'lucide-react';
 
 interface AuthLandingProps {
-  onSignInWithGoogle: () => Promise<void>;
-  onSignInGuest: () => Promise<void>;
+  onSignInWithGoogle: () => Promise<any>;
+  onSignInGuest: () => Promise<any>;
 }
 
 export const AuthLanding: React.FC<AuthLandingProps> = ({
@@ -20,6 +20,14 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({
       setErrorMessage(null);
       await onSignInWithGoogle();
     } catch (err: any) {
+      if (
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.message?.includes('auth/popup-closed-by-user') ||
+        err?.code === 'auth/cancelled-popup-request'
+      ) {
+        // User closed the popup intentionally - no error message needed
+        return;
+      }
       setErrorMessage(err.message || 'Google Sign-In failed.');
     } finally {
       setLoadingGoogle(false);
@@ -62,12 +70,20 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({
 
         {/* Error Banner */}
         {errorMessage && (
-          <div className="max-w-md mx-auto p-4 rounded-xl bg-[#fae8e8] border border-[#e8b5b5] text-[#9b3e3e] text-sm flex items-start gap-3 text-left">
-            <AlertCircle className="w-5 h-5 text-[#9b3e3e] shrink-0 mt-0.5" />
-            <div>
-              <p className="font-medium">Authentication Notice</p>
-              <p className="text-xs text-[#9b3e3e]/90 mt-0.5">{errorMessage}</p>
+          <div className="max-w-md mx-auto p-4 rounded-xl bg-[#fae8e8] border border-[#e8b5b5] text-[#9b3e3e] text-sm flex items-start justify-between gap-3 text-left">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-[#9b3e3e] shrink-0 mt-0.5" />
+              <div>
+                <p className="font-medium">Authentication Notice</p>
+                <p className="text-xs text-[#9b3e3e]/90 mt-0.5">{errorMessage}</p>
+              </div>
             </div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-xs text-[#9b3e3e] hover:underline shrink-0 cursor-pointer"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 

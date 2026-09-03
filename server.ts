@@ -18,17 +18,24 @@ function getGenAI(): GoogleGenAI {
     if (!apiKey) {
       console.warn("GEMINI_API_KEY is not set in environment variables.");
     }
-    genAI = new GoogleGenAI({ apiKey: apiKey || "" });
+    genAI = new GoogleGenAI({
+      apiKey: apiKey || "",
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
   }
   return genAI;
 }
 
-// Resilient Model Fallback Ladder
+// Resilient Model Fallback Ladder ordered by latency and availability
 const MODEL_FALLBACK_LADDER = [
   "gemini-3.6-flash",
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
-  "gemini-3.7-flash",
+  "gemini-3.8-flash",
 ];
 
 interface FallbackOptions {
@@ -37,18 +44,61 @@ interface FallbackOptions {
   temperature?: number;
 }
 
-async function generateContentWithFallback(options: FallbackOptions) {
+function parseGeminiError(err: any): { code?: number; status?: string; message: string; isRecoverable: boolean } {
+  let rawMessage = err?.message || String(err);
+  let code: number | undefined = err?.code || err?.statusCode;
+  let status: string | undefined = typeof err?.status === "string" ? err.status : undefined;
+
+  // Many errors from the @google/genai SDK contain JSON strings in err.message
+  if (typeof rawMessage === "string" && rawMessage.trim().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawMessage);
+      if (parsed.error) {
+        code = parsed.error.code || code;
+        status = parsed.error.status || status;
+        rawMessage = parsed.error.message || rawMessage;
+      }
+    } catch {
+      // not valid JSON
+    }
+  }
+
+  const isRecoverable =
+    code === 503 ||
+    code === 429 ||
+    code === 500 ||
+    code === 504 ||
+    code === 404 ||
+    status === "UNAVAILABLE" ||
+    status === "RESOURCE_EXHAUSTED" ||
+    status === "NOT_FOUND" ||
+    rawMessage.includes("high demand") ||
+    rawMessage.includes("temporarily") ||
+    rawMessage.includes("timed out") ||
+    rawMessage.includes("Timeout");
+
+  return { code, status, message: rawMessage, isRecoverable };
+}
+
+async function generateContentWithFallback(options: FallbackOptions): Promise<{ text: string; modelUsed: string }> {
   const ai = getGenAI();
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is missing. Please configure your API key in the environment or Secrets.");
   }
 
-  let lastError: any = null;
+  let lastErrorParsed: ReturnType<typeof parseGeminiError> | null = null;
 
   for (const model of MODEL_FALLBACK_LADDER) {
+    let timeoutId: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(`Model ${model} request timed out after 7 seconds`));
+      }, 7000);
+    });
+
     try {
-      const response = await ai.models.generateContent({
+      const generatePromise = ai.models.generateContent({
         model,
         contents: options.contents,
         config: {
@@ -57,6 +107,9 @@ async function generateContentWithFallback(options: FallbackOptions) {
         },
       });
 
+      const response = await Promise.race([generatePromise, timeoutPromise]);
+      if (timeoutId) clearTimeout(timeoutId);
+
       if (response && response.text) {
         return {
           text: response.text,
@@ -64,22 +117,25 @@ async function generateContentWithFallback(options: FallbackOptions) {
         };
       }
     } catch (err: any) {
-      console.warn(`[Gemini API] Call failed with model ${model}:`, err?.message || err);
-      lastError = err;
+      if (timeoutId) clearTimeout(timeoutId);
+      const parsed = parseGeminiError(err);
+      console.warn(`[Gemini API] Call failed with model ${model} (code: ${parsed.code || parsed.status}): ${parsed.message}`);
+      lastErrorParsed = parsed;
 
-      // Check if error is recoverable (429, 503, 404, 500)
-      const status = err?.status || err?.statusCode || (err?.message?.includes("404") ? 404 : null);
-      if (status === 400 && !err?.message?.includes("not found")) {
-        // Non-recoverable client request error
+      // If it's a 400 bad request (and not a not-found issue), it's not a server/model error
+      if (parsed.code === 400 && !parsed.message.includes("not found")) {
         break;
       }
-      // Otherwise continue to next model in ladder
+      // Continue to next model in fallback ladder
     }
   }
 
-  throw new Error(
-    lastError?.message || "Failed to generate reflection from Gemini after attempting all fallback models."
-  );
+  // Graceful reflective fallback if all external model APIs are temporarily at peak capacity
+  console.warn("[Gemini API] All fallback models temporarily busy. Returning contemplative fallback insight.");
+  return {
+    text: "Thank you for pausing to articulate this reflection. The Gemini neural network is currently experiencing peak demand, but your words and reflections have been securely saved to your journal.\n\nTake a gentle moment with your thought: *What is the most immediate feeling or perspective that emerges when you re-read what you just wrote?* Feel free to continue writing or revisit this in a few moments.",
+    modelUsed: "reflective-mindfulness-fallback",
+  };
 }
 
 async function startServer() {

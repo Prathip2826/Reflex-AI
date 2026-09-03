@@ -8,6 +8,7 @@ import {
   signOutUser,
   subscribeUserEntries,
   deleteJournalEntry,
+  testFirestoreConnection,
 } from './lib/firebase';
 import { Header } from './components/Header';
 import { AuthLanding } from './components/AuthLanding';
@@ -23,6 +24,13 @@ export default function App() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [currentEntry, setCurrentEntry] = useState<JournalEntry | null>(null);
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
+
+  // Validate Firestore server connectivity on boot
+  useEffect(() => {
+    testFirestoreConnection().catch((err) => {
+      console.warn('Firestore initial test connection note:', err);
+    });
+  }, []);
 
   // Subscribe to Firebase Auth State
   useEffect(() => {

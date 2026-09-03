@@ -196,6 +196,18 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
     }
   };
 
+  // Retry the last turn if Gemini response failed
+  const handleRetryLastTurn = () => {
+    if (messages.length === 0 || isGenerating) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role === 'user') {
+      const priorMessages = messages.slice(0, -1);
+      setMessages(priorMessages);
+      setErrorMessage(null);
+      handleSubmitTurn(undefined, lastMsg.text, lastMsg.mode);
+    }
+  };
+
   // Generate Summary & Key Takeaways
   const handleGenerateSummary = async () => {
     if (messages.length === 0 || isGenerating) return;
@@ -316,17 +328,30 @@ export const JournalEditor: React.FC<JournalEditorProps> = ({
 
       {/* Error Alert */}
       {errorMessage && (
-        <div className="p-4 rounded-xl bg-[#fae8e8] border border-[#e8b5b5] text-[#9b3e3e] text-sm flex items-center justify-between">
+        <div className="p-4 rounded-xl bg-[#fae8e8] border border-[#e8b5b5] text-[#9b3e3e] text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-[#9b3e3e] shrink-0" />
             <span>{errorMessage}</span>
           </div>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-xs text-[#9b3e3e] hover:underline ml-4"
-          >
-            Dismiss
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+              <button
+                type="button"
+                id="btn-retry-reflection"
+                onClick={handleRetryLastTurn}
+                disabled={isGenerating}
+                className="px-3 py-1 rounded-lg bg-[#9b3e3e] text-white hover:bg-[#7d2e2e] text-xs font-medium cursor-pointer transition-colors shadow-2xs disabled:opacity-50"
+              >
+                Retry Reflection
+              </button>
+            )}
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-xs text-[#9b3e3e] hover:underline px-2 py-1 cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 

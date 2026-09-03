@@ -14,14 +14,62 @@ import {
   doc,
   setDoc,
   deleteDoc,
-  getDocs,
   query,
   orderBy,
   onSnapshot,
-  Timestamp,
+  getDocFromServer,
 } from 'firebase/firestore';
 import type { JournalEntry, UserProfile } from '../types';
 import firebaseConfigData from '../../firebase-applet-config.json';
+
+// Firestore Operation Types & Error Handling (Firebase Skill Standard)
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo:
+        auth.currentUser?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 
 // Initialize Firebase
 const firebaseConfig = {
@@ -44,6 +92,20 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export const db = firebaseConfigData.firestoreDatabaseId
   ? getFirestore(app, firebaseConfigData.firestoreDatabaseId)
   : getFirestore(app);
+
+// Test Firestore Connection on boot
+export async function testFirestoreConnection(): Promise<boolean> {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('Firestore is currently offline or connecting...');
+      return false;
+    }
+    return true;
+  }
+}
 
 // Helper: Strip undefined fields recursively to prevent Firestore driver errors
 export function sanitizeFirestorePayload<T>(obj: T): T {
@@ -73,20 +135,32 @@ export function mapFirebaseUser(user: User | null): UserProfile | null {
 }
 
 // Auth operations
-export async function signInWithGoogle(): Promise<UserProfile> {
+export async function signInWithGoogle(): Promise<UserProfile | null> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const profile = mapFirebaseUser(result.user);
     if (!profile) throw new Error('User profile could not be loaded.');
     return profile;
   } catch (error: any) {
+    // 1. User intentionally closed popup or cancelled: do NOT throw or log as a system error
+    if (
+      error?.code === 'auth/popup-closed-by-user' ||
+      error?.code === 'auth/cancelled-popup-request'
+    ) {
+      // User closed the auth window voluntarily - cleanly return null
+      return null;
+    }
+
+    // 2. Browser blocked popup window (e.g. restrictive iframe or popup blocker)
+    if (error?.code === 'auth/popup-blocked') {
+      console.warn('Google Sign-In popup was blocked by browser.');
+      throw new Error(
+        'Sign-in popup was blocked by your browser. Please allow popups or use the Anonymous Guest Session.'
+      );
+    }
+
     console.error('Google Sign-In Error:', error);
-    // If popup blocked or failed in sandbox iframe, give descriptive message
-    throw new Error(
-      error?.code === 'auth/popup-blocked'
-        ? 'Sign-in popup was blocked by browser. Please allow popups or open in a new tab.'
-        : error?.message || 'Failed to sign in with Google.'
-    );
+    throw new Error(error?.message || 'Failed to sign in with Google.');
   }
 }
 
@@ -123,11 +197,18 @@ export async function saveJournalEntry(userId: string, entry: JournalEntry): Pro
   }
 
   const cleanData = sanitizeFirestorePayload(entry);
+  const entryPath = `users/${userId}/entries/${entry.id}`;
   const entryDocRef = doc(db, 'users', userId, 'entries', entry.id);
-  await setDoc(entryDocRef, cleanData, { merge: true });
+
+  try {
+    await setDoc(entryDocRef, cleanData, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, entryPath);
+  }
 
   // Also log interaction in interactions subcollection for audit / tracking
   try {
+    const interactionPath = `users/${userId}/interactions/${entry.id}`;
     const interactionDocRef = doc(db, 'users', userId, 'interactions', entry.id);
     await setDoc(
       interactionDocRef,
@@ -147,8 +228,13 @@ export async function saveJournalEntry(userId: string, entry: JournalEntry): Pro
 
 export async function deleteJournalEntry(userId: string, entryId: string): Promise<void> {
   if (!userId || !entryId) throw new Error('User ID and Entry ID are required.');
+  const entryPath = `users/${userId}/entries/${entryId}`;
   const entryDocRef = doc(db, 'users', userId, 'entries', entryId);
-  await deleteDoc(entryDocRef);
+  try {
+    await deleteDoc(entryDocRef);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, entryPath);
+  }
 }
 
 export function subscribeUserEntries(
@@ -161,6 +247,7 @@ export function subscribeUserEntries(
     return () => {};
   }
 
+  const collectionPath = `users/${userId}/entries`;
   const entriesRef = collection(db, 'users', userId, 'entries');
   // Order by createdAt descending
   const q = query(entriesRef, orderBy('createdAt', 'desc'));
@@ -175,8 +262,11 @@ export function subscribeUserEntries(
       onData(list);
     },
     (err) => {
-      console.error('Error subscribing to user entries:', err);
-      onError(err);
+      try {
+        handleFirestoreError(err, OperationType.LIST, collectionPath);
+      } catch (wrappedErr: any) {
+        onError(wrappedErr);
+      }
     }
   );
 }
