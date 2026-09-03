@@ -93,6 +93,26 @@ gcloud run services update reflect-ai \
 
 ---
 
+## ⚡ Vercel Deployment Guide
+
+ReflectAI includes built-in Vercel Serverless Function support via `api/index.ts` and `vercel.json`.
+
+### 1. Push to GitHub & Import to Vercel
+1. Push your repository to GitHub / GitLab.
+2. In the [Vercel Dashboard](https://vercel.com/dashboard), click **Add New...** > **Project** and import the repository.
+3. Framework Preset: **Vite** (Build command: `npm run build`, Output directory: `dist`).
+
+### 2. Configure Environment Variables in Vercel
+In **Project Settings** > **Environment Variables**, add the following keys:
+- `GEMINI_API_KEY`: Your Gemini API key from Google AI Studio.
+- *(Optional)* `GROQ_API_KEY`: For ultra-low latency fallback inference.
+
+> ⚠️ **Why did Vercel show "Failed to generate summary from Gemini"?**  
+> By default, Vercel only deploys Vite's static `dist/` frontend and does not run standalone Node servers (`server.ts`).  
+> With our `vercel.json` rewrites and `api/index.ts` serverless adapter, Vercel routes `/api/*` requests directly to the serverless function, allowing Gemini & Groq APIs to function seamlessly.
+
+---
+
 ## 🧪 Functional Walkthrough & Test Guide
 
 1. **Authentication Flow**:

@@ -76,7 +76,12 @@ export async function requestGeminiReflection(params: ReflectRequestParams): Pro
   });
 
   if (!response.ok) {
-    let errorMsg = 'Failed to generate reflection from Gemini.';
+    let errorMsg =
+      response.status === 404
+        ? 'API endpoint not found (HTTP 404). If hosted on Vercel, ensure api/index.ts and vercel.json are deployed, and GEMINI_API_KEY is added in Vercel Project Settings.'
+        : response.status === 500
+        ? 'Internal Server Error (HTTP 500). Please check your GEMINI_API_KEY or GROQ_API_KEY in environment variables.'
+        : `Failed to generate reflection from Gemini (HTTP ${response.status}).`;
     try {
       const errJson = await response.json();
       if (typeof errJson.error === 'string') {
@@ -95,7 +100,7 @@ export async function requestGeminiReflection(params: ReflectRequestParams): Pro
         errorMsg = errJson.error.message;
       }
     } catch {
-      // response not json
+      // response not json (e.g. static html 404 from edge server)
     }
     throw new Error(errorMsg);
   }
@@ -113,7 +118,12 @@ export async function requestGeminiSummary(text: string, title?: string): Promis
   });
 
   if (!response.ok) {
-    let errorMsg = 'Failed to generate summary from Gemini.';
+    let errorMsg =
+      response.status === 404
+        ? 'API endpoint not found (HTTP 404). If hosted on Vercel, ensure api/index.ts and vercel.json are deployed, and GEMINI_API_KEY is added in Vercel Project Settings.'
+        : response.status === 500
+        ? 'Internal Server Error (HTTP 500). Please check your GEMINI_API_KEY or GROQ_API_KEY in environment variables.'
+        : `Failed to generate summary from Gemini (HTTP ${response.status}).`;
     try {
       const errJson = await response.json();
       if (typeof errJson.error === 'string') {
